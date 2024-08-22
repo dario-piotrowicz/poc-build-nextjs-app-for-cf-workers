@@ -25,40 +25,8 @@ export async function buildWorker(
 	outputDir: string,
 	nextjsAppPaths: NextjsAppPaths
 ): Promise<void> {
-	console.log();
-
-	// ultra hack! to solve (maybe with Pete's help)
-	const problematicUnenvFile =
-		"/Users/dario/Desktop/poc-build-nextjs-app-for-cf-workers/node_modules/.pnpm/unenv-nightly@1.10.0-1717606461.a117952/node_modules/unenv-nightly/runtime/node/process/$cloudflare.mjs";
-	const originalProblematicUnenvFileContent = readFileSync(
-		problematicUnenvFile,
-		"utf-8"
-	);
-	writeFileSync(
-		problematicUnenvFile,
-		originalProblematicUnenvFileContent.replace(
-			'const unpatchedGlobalThisProcess = globalThis["process"];',
-			'const unpatchedGlobalThisProcess = global.process; /* 👈 original line: `const unpatchedGlobalThisProcess = globalThis["process"]` */'
-		)
-	);
-	// ultra hack! to solve (maybe with Pete's help)
-	// IMPORTANT: this is coming from the usage of the old school assets! we should not do that anyways!
-	const problematicKvAssetHandler =
-		"/Users/dario/Desktop/poc-build-nextjs-app-for-cf-workers/node_modules/.pnpm/@cloudflare+kv-asset-handler@0.3.4/node_modules/@cloudflare/kv-asset-handler/dist/index.js";
-	const originalProblematicKvAssetHandlerContent = readFileSync(
-		problematicKvAssetHandler,
-		"utf-8"
-	);
-	writeFileSync(
-		problematicKvAssetHandler,
-		originalProblematicKvAssetHandlerContent.replace(
-			'const mime = __importStar(require("mime"));',
-			'let mime = __importStar(require("mime")); mime = mime.default ?? mime;'
-		)
-	);
-
 	const workerEntrypoint = `${__dirname}/templates/worker.ts`;
-	const workerOutputFile = `${outputDir}/index.mjs`;
+	const workerOutputFile = `${outputDir}/assets/_worker.js`;
 	const nextConfigStr =
 		readFileSync(nextjsAppPaths.standaloneAppDir + "/server.js", "utf8")?.match(
 			/const nextConfig = ({.+?})\n/
@@ -135,10 +103,10 @@ async function updateWorkerBundledCode(
 	workerOutputFile: string,
 	nextjsAppPaths: NextjsAppPaths
 ): Promise<void> {
-	const workerContents = await readFile(workerOutputFile, "utf8");
+	let workerContents = await readFile(workerOutputFile, "utf8");
 
 	// ultra hack (don't remember/know why it's needed)
-	let updatedWorkerContents = workerContents
+	workerContents = workerContents
 		.replace(/__require\d?\(/g, "require(")
 		.replace(/__require\d?\./g, "require.");
 
@@ -146,7 +114,7 @@ async function updateWorkerBundledCode(
 	// so we add an early return to the `getBuildId` function so that the `readyFileSync` is never encountered
 	// (source: https://github.com/vercel/next.js/blob/15aeb92efb34c09a36/packages/next/src/server/next-server.ts#L438-L451)
 	// Note: we could/should probably just patch readFileSync here or something!
-	updatedWorkerContents = updatedWorkerContents.replace(
+	workerContents = workerContents.replace(
 		"getBuildId() {",
 		`getBuildId() {
       return ${JSON.stringify(
@@ -164,7 +132,7 @@ async function updateWorkerBundledCode(
 	const manifestJsons = globSync(
 		`${nextjsAppPaths.standaloneAppDotNextDir}/**/*-manifest.json`
 	).map((file) => file.replace(nextjsAppPaths.standaloneAppDir + "/", ""));
-	updatedWorkerContents = updatedWorkerContents.replace(
+	workerContents = workerContents.replace(
 		/function loadManifest\((.+?), .+?\) {/,
 		`$&
     ${manifestJsons
@@ -185,7 +153,7 @@ async function updateWorkerBundledCode(
 
 	// Next.js tries to instantiate an https agent, so here we replace that with a simple http one (which we support)
 	// source: https://github.com/vercel/next.js/blob/aa90fe9bb/packages/next/src/server/setup-http-agent-env.ts#L20
-	updatedWorkerContents = updatedWorkerContents.replace(
+	workerContents = workerContents.replace(
 		'var _https = require("https");',
 		'var _https = require("http");'
 	);
@@ -194,7 +162,7 @@ async function updateWorkerBundledCode(
 	// VERY IMPORTANT: this required the following dependency to be part of the application!!!! (this is very bad!!!)
 	//    "node-url": "npm:url@^0.11.4"
 	// Hopefully this should not be necessary after this unenv PR lands: https://github.com/unjs/unenv/pull/292
-	updatedWorkerContents = updatedWorkerContents.replace(
+	workerContents = workerContents.replace(
 		/ ([a-zA-Z0-9_]+) = require\("url"\);/g,
 		` $1 = require("url");
       const nodeUrl = require("node-url");
@@ -227,7 +195,7 @@ async function updateWorkerBundledCode(
 	const htmlPages = allManifestFiles.filter((file) => file.endsWith(".html"));
 	const pageModules = allManifestFiles.filter((file) => file.endsWith(".js"));
 
-	updatedWorkerContents = updatedWorkerContents.replace(
+	workerContents = workerContents.replace(
 		/const pagePath = getPagePath\(.+?\);/,
 		`$&
     ${htmlPages
@@ -257,5 +225,5 @@ async function updateWorkerBundledCode(
     `
 	);
 
-	await writeFile(workerOutputFile, updatedWorkerContents);
+	await writeFile(workerOutputFile, workerContents);
 }
