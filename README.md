@@ -1,3 +1,10 @@
+&nbsp;&nbsp;&nbsp; ⚠️ &nbsp;&nbsp;&nbsp; ⚠️ &nbsp;&nbsp;&nbsp; ⚠️
+> [!WARNING]
+> Repo archived in favour of https://github.com/flarelabs-net/poc-next
+
+&nbsp;&nbsp;&nbsp; ⚠️ &nbsp;&nbsp;&nbsp; ⚠️ &nbsp;&nbsp;&nbsp; ⚠️
+
+
 # [POC] Build Next.js app for cf workers
 
 This monorepo includes a POC to see if it is possible to get a Next.js application built via `next build` (in standalone mode) to run in the Cloudflare workerd runtime.
